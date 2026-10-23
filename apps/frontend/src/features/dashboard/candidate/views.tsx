@@ -36,7 +36,7 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -1554,20 +1554,71 @@ export function JobDrawer({
 export function MessagesView({
   conversations,
   onSend,
+  loading = false,
+  error = null,
+  sending = false,
+  onMarkRead,
 }: {
   conversations: Conversation[];
   onSend: (conversationId: string, text: string) => void;
+  loading?: boolean;
+  error?: string | null;
+  sending?: boolean;
+  onMarkRead?: (conversationId: string) => void;
 }) {
   const [selectedId, setSelectedId] = useState(conversations[0]?.id ?? '');
   const [draft, setDraft] = useState('');
 
-  const selected = conversations.find((conversation) => conversation.id === selectedId);
+  const selected =
+    conversations.find((conversation) => conversation.id === selectedId) ?? conversations[0];
+
+  /* A conversation the candidate cannot start: it exists because a recruiter
+     wrote in. Opening it (or receiving into the open one) clears the badge. */
+  const read = useRef(onMarkRead);
+  read.current = onMarkRead;
+  useEffect(() => {
+    if (selected && selected.unread > 0) read.current?.(selected.id);
+  }, [selected?.id, selected?.unread]);
 
   function send(event: React.FormEvent) {
     event.preventDefault();
-    if (!draft.trim() || !selected) return;
+    if (!draft.trim() || !selected || sending) return;
     onSend(selected.id, draft.trim());
     setDraft('');
+  }
+
+  if (loading && !conversations.length) {
+    return (
+      <p role="status" className="animate-fade-in-up text-sm text-muted-foreground">
+        Loading conversations…
+      </p>
+    );
+  }
+
+  if (!conversations.length) {
+    return (
+      <div className="space-y-5">
+        <div className="animate-fade-in-up">
+          <h2 className="text-xl font-bold">Messages</h2>
+          <p className="text-sm text-muted-foreground">
+            Conversations with recruiters, in one thread per role.
+          </p>
+        </div>
+        <div className="animate-fade-in-up flex min-h-[420px] flex-col items-center justify-center gap-2 rounded-2xl border border-border bg-card p-8 text-center shadow-sm">
+          <Send className="h-8 w-8 text-muted-foreground/50" />
+          <h3 className="font-semibold">No conversations yet</h3>
+          <p className="max-w-sm text-sm text-muted-foreground">
+            When a recruiter messages you about a role, the conversation appears
+            here. You can always apply to jobs — recruiters reach out after that.
+          </p>
+          {error && (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          )}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -1610,6 +1661,11 @@ export function MessagesView({
         </div>
 
         <div className="flex min-h-[420px] flex-col rounded-2xl border border-border bg-card shadow-sm">
+          {error && (
+            <p role="alert" className="border-b border-border p-3 text-sm text-destructive">
+              {error}
+            </p>
+          )}
           {selected && (
             <>
               <div className="flex items-center gap-3 border-b border-border p-4">
@@ -1655,7 +1711,7 @@ export function MessagesView({
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
                 />
-                <Button type="submit" size="icon" aria-label="Send message">
+                <Button type="submit" size="icon" aria-label="Send message" disabled={sending || !draft.trim()}>
                   <Send className="h-4 w-4" />
                 </Button>
               </form>
@@ -2622,6 +2678,88 @@ export function StagePills({
           <span className="font-bold">{counts[status]}</span>
         </button>
       ))}
+    </div>
+  );
+}
+
+export function CandidateProfileViewsView({
+  views = [],
+  totalViews = 0,
+  isLoading = false,
+  error,
+  onRetry,
+}: {
+  views?: Array<{
+    id: string;
+    viewedAt: string;
+    recruiterId: string;
+    recruiterName: string;
+    companyName: string;
+    recruiterEmail: string;
+  }>;
+  totalViews?: number;
+  isLoading?: boolean;
+  error?: string;
+  onRetry?: () => void;
+}) {
+  return (
+    <div className="space-y-6 animate-fade-in-up">
+      <div>
+        <h2 className="text-xl font-bold">Profile Views</h2>
+        {!isLoading && !error && <p className="text-sm text-muted-foreground">
+          {totalViews === 1
+            ? '1 recruiter has viewed your profile.'
+            : `${totalViews} recruiters have viewed your profile.`}
+        </p>}
+      </div>
+
+      <div className="space-y-3">
+        {isLoading && (
+          <p role="status" className="text-sm text-muted-foreground">
+            Loading view history…
+          </p>
+        )}
+        {error && <div role="alert" className="text-sm text-destructive">{error} {onRetry && <button type="button" onClick={onRetry} className="font-semibold underline">Retry</button>}</div>}
+        {!isLoading && !error && views.length === 0 && (
+          <div className="rounded-2xl border border-border bg-card p-10 text-center shadow-sm">
+            <Eye className="mx-auto mb-3 h-10 w-10 text-muted-foreground/50" />
+            <h3 className="font-semibold">No profile views yet</h3>
+            <p className="text-sm text-muted-foreground">
+              When recruiters view your profile or resume, they will appear here.
+            </p>
+          </div>
+        )}
+        {views.map((view) => (
+          <div
+            key={view.id}
+            className="flex items-center justify-between rounded-xl border border-border bg-card p-4 shadow-sm"
+          >
+            <div className="flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
+                {view.companyName?.[0]?.toUpperCase() ||
+                  view.recruiterName?.[0]?.toUpperCase() ||
+                  'R'}
+              </span>
+              <div>
+                <p className="font-semibold">{view.recruiterName}</p>
+                {(view.companyName || view.recruiterEmail) && <p className="text-sm text-muted-foreground">
+                  {[view.companyName, view.recruiterEmail].filter(Boolean).join(' · ')}
+                </p>}
+              </div>
+            </div>
+            <p className="text-xs font-medium text-muted-foreground">
+              Viewed on{' '}
+              {view.viewedAt
+                ? new Date(view.viewedAt).toLocaleDateString(undefined, {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                  })
+                : 'Unknown date'}
+            </p>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

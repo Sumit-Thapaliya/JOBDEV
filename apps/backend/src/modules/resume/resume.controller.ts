@@ -108,15 +108,42 @@ export const saveCurrentResume: RequestHandler = async (req, res, next) => {
   } catch (error) { next(error); }
 };
 
+/**
+ * The recruiter copy: the candidate's own PDF, stamped with JOBDEV.
+ *
+ * Style matches the microservice's stamp (Helvetica-Bold 68pt, 45°, light
+ * grey) so a recruiter cannot tell which side produced the copy. The word is
+ * centred exactly: rotated text starts at the baseline's lower-left, so the
+ * run is offset by half its length along the diagonal.
+ */
+const WATERMARK = {
+  text: 'JOBDEV',
+  font: StandardFonts.HelveticaBold,
+  size: 68,
+  opacity: 0.18,
+  color: rgb(0.42, 0.45, 0.5),
+  footer: 'Shared through JOBDEV',
+} as const;
+
 export async function watermarkPdf(bytes: Uint8Array) {
   const document = await PDFDocument.load(bytes);
-  const font = await document.embedFont(StandardFonts.HelveticaBold);
+  const font = await document.embedFont(WATERMARK.font);
   for (const page of document.getPages()) {
     const { width, height } = page.getSize();
-    const size = Math.min(84, width / 7);
-    page.drawText('JobDev', { x: width * 0.18, y: height * 0.35, size, font,
-      rotate: degrees(40), color: rgb(0.25, 0.35, 0.47), opacity: 0.15 });
-    page.drawText('Shared through JobDev', { x: 24, y: 14, size: 9, font, color: rgb(0.3, 0.3, 0.3), opacity: 0.7 });
+    const run = font.widthOfTextAtSize(WATERMARK.text, WATERMARK.size);
+    const diagonal = run / 2 / Math.SQRT2;
+    page.drawText(WATERMARK.text, {
+      x: width / 2 - diagonal,
+      y: height / 2 - diagonal,
+      size: WATERMARK.size,
+      font,
+      color: WATERMARK.color,
+      opacity: WATERMARK.opacity,
+      rotate: degrees(45),
+    });
+    page.drawText(WATERMARK.footer, {
+      x: 24, y: 14, size: 9, font, color: rgb(0.3, 0.3, 0.3), opacity: 0.7,
+    });
   }
   return Buffer.from(await document.save());
 }
@@ -133,6 +160,8 @@ export const recruiterResume: RequestHandler = async (req, res, next) => {
       if (!env.ATS_API_KEY) throw new AppError(503, 'Word-to-PDF conversion is unavailable');
       const form = new FormData();
       form.append('file', new Blob([new Uint8Array(bytes)]), candidate.resumeFileName);
+      /* Clean conversion — the JobDev watermark below is the only stamp. */
+      form.append('no_watermark', 'true');
       const response = await serviceRequest(`${env.ATS_ENDPOINT}/v1/format/pdf`, {
         method: 'POST', headers: { 'X-API-Key': env.ATS_API_KEY }, body: form, signal: AbortSignal.timeout(30000),
       });

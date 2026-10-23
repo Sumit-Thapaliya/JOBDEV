@@ -116,6 +116,32 @@ function decodeJson(value: unknown): unknown {
   return current;
 }
 
+/**
+ * Rows saved by the OLD editor hold their canvas (`{ pages: [...] }`) as the
+ * parsed profile. There is no semantic structure to recover, so the text runs
+ * are replayed in reading order — an old row shows its content instead of a
+ * blank sheet with junk headings.
+ */
+function canvasTextLines(payload: Record<string, unknown>): string[] {
+  const runs: Array<{ y: number; x: number; size: number; text: string }> = [];
+  for (const page of array(payload.pages)) {
+    for (const item of array(object(page).objects)) {
+      const run = object(item);
+      if (typeof run.text !== 'string') continue;
+      const line = text(run.text);
+      if (!line) continue;
+      runs.push({
+        y: Number(run.y ?? 0),
+        x: Number(run.x ?? 0),
+        size: Number(object(run.style).size ?? 0),
+        text: line,
+      });
+    }
+  }
+  runs.sort((a, b) => a.y - b.y || a.x - b.x);
+  return runs.map((run) => run.text);
+}
+
 /* ------------------------------------------------------------------- resume */
 
 /**
@@ -124,6 +150,24 @@ function decodeJson(value: unknown): unknown {
  */
 export function buildResumeView(parsedProfile: unknown): ResumeView {
   const root = inner(object(decodeJson(parsedProfile)));
+
+  /* Legacy canvas row: replay its text instead of inventing sections. */
+  const canvasLines = canvasTextLines(root);
+  if (canvasLines.length) {
+    const [firstLine, ...rest] = canvasLines;
+    const sweptName = redactContactTextDeep(firstLine) as string;
+    const sweptLines = redactContactTextDeep(rest.length ? rest : canvasLines) as string[];
+    return {
+      name: sweptName,
+      headline: '',
+      summary: '',
+      experience: [],
+      education: [],
+      skills: [],
+      sections: [{ heading: 'Saved resume', lines: sweptLines }],
+    };
+  }
+
   const basics = (() => {
     const direct = object(root.basics);
     return Object.keys(direct).length ? direct : root;
@@ -198,6 +242,14 @@ export function buildResumeView(parsedProfile: unknown): ResumeView {
     'summary', 'about', 'profile', 'objective', 'professional_summary',
     'work', 'experience', 'work_experience', 'workExperience', 'employment', 'positions',
     'education', 'qualifications', 'skills', 'technical_skills', 'technologies', ...ENVELOPES,
+    /* meta of our own saves — never resume content */
+    'kind', 'version', 'app', 'savedAt', 'jobId', 'canvas', 'assets', 'pages', 'objects',
+    'id', 'userId', 'fileName', 'uploadedAt', 'createdAt', 'updatedAt', 'meta',
+    /* shown elsewhere (drawer / contact block) or withheld from this view */
+    'location', 'city', 'country', 'region', 'address',
+    'email', 'email_address', 'phone', 'mobile', 'phone_number', 'contact_number', 'contact',
+    'linkedin', 'github', 'website', 'url', 'portfolio', 'links',
+    'expectedSalary', 'noticePeriod', 'seniority', 'workModes', 'openToWork', 'avatar',
   ]);
   const sections: ResumeLine[] = [];
   for (const [key, value] of Object.entries(root)) {
@@ -226,14 +278,18 @@ export function buildResumeView(parsedProfile: unknown): ResumeView {
     },
   });
 
+  /* The parser can repeat a skill (it appears in two CV sections); the sheet
+     shows each one once. */
+  const unique = (values: string[]) => [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+
   return {
     name,
     headline: swept.headline,
     summary: swept.summary,
     experience: swept.sections.experience,
-    education: swept.sections.education,
-    skills: swept.sections.skills,
-    sections: swept.sections.sections,
+    education: unique(swept.sections.education),
+    skills: unique(swept.sections.skills),
+    sections: swept.sections.sections.map((section) => ({ ...section, lines: unique(section.lines) })),
   };
 }
 

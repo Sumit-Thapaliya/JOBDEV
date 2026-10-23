@@ -37,9 +37,13 @@ import {
   HelpView,
   JobDrawer,
   JobsView,
+  mapApplicantRow,
+  MessagesView,
   SettingsView,
   StatusChip,
+  type ApplicantApiRow,
 } from './recruiter/views';
+import { useChat } from './chat/use-chat';
 
 const daysSince = (iso: string) => Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000));
 const hoursSince = (iso: string) => Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 3_600_000));
@@ -140,6 +144,9 @@ function StatCard({
 
 export function RecruiterDashboard() {
   const { data: user } = useSession();
+  const chat = useChat(!!user);
+  /** The thread the Messages tab opens on (set when the drawer starts one). */
+  const [chatThreadId, setChatThreadId] = useState<string | null>(null);
 
   const [view, setView] = useState<RecruiterView>('overview');
   const client = useQueryClient();
@@ -148,7 +155,12 @@ export function RecruiterDashboard() {
   const jobsQuery = useQuery({ queryKey: jobsKey, enabled: !!user,
     queryFn: async ({ signal }) => (await apiGet<{ jobs: JobRow[] }>('/api/jobs/mine', signal)).jobs.map(mapApiJob) });
   const applicantsQuery = useQuery({ queryKey: applicantsKey, enabled: !!user,
-    queryFn: async ({ signal }) => (await apiGet<{ applicants: Applicant[] }>('/api/applications/recruiter', signal)).applicants });
+    /* Always re-read: a candidate can replace their resume after applying, and
+       the app default (30 s stale + no refetch on focus) kept showing the old
+       one in an open tab. */
+    staleTime: 0, refetchOnMount: 'always', refetchOnWindowFocus: true,
+    /* Masked at the source: contact values are one-way tokens already. */
+    queryFn: async ({ signal }) => (await apiGet<{ applicants: ApplicantApiRow[] }>('/api/applicants', signal)).applicants.map(mapApplicantRow) });
   const jobs = jobsQuery.data ?? INITIAL_JOBS;
   const applicants = applicantsQuery.data ?? [];
   const setJobs = (update: (current: Job[]) => Job[]) => client.setQueryData(jobsKey, update(jobs));
@@ -337,7 +349,30 @@ export function RecruiterDashboard() {
 
   const badges: Partial<Record<RecruiterView, number>> = {
     applicants: applicants.filter((a) => a.status === 'New').length,
+    messages: chat.unread,
   };
+
+  /** Opens (or re-uses) the conversation for one applicant and jumps to it. */
+  async function openChat(applicant: Applicant) {
+    try {
+      const thread = await chat.openThread.mutateAsync(applicant.id);
+      setChatThreadId(thread.id);
+      setSelectedApplicant(null);
+      setView('messages');
+    } catch (error) {
+      toast({
+        title: error instanceof Error ? error.message : 'Could not open the conversation',
+        variant: 'destructive',
+      });
+    }
+  }
+
+  const chatError =
+    chat.threads.error instanceof Error
+      ? chat.threads.error.message
+      : chat.send.error instanceof Error
+        ? chat.send.error.message
+        : null;
 
   return (
     <div className="flex flex-col gap-4 lg:flex-row lg:gap-6">
@@ -642,6 +677,19 @@ export function RecruiterDashboard() {
           />
         )}
 
+        {view === 'messages' && (
+          <MessagesView
+            conversations={chat.threads.data ?? []}
+            onSend={(conversationId, text) => chat.send.mutate({ threadId: conversationId, text })}
+            onMarkRead={(conversationId) => chat.markRead.mutate(conversationId)}
+            selectedId={chatThreadId}
+            onSelect={setChatThreadId}
+            loading={chat.threads.isLoading}
+            sending={chat.send.isPending}
+            error={chatError}
+          />
+        )}
+
         {view === 'analytics' && <AnalyticsView />}
         {view === 'company' && <CompanyView />}
         {view === 'settings' && <SettingsView />}
@@ -652,6 +700,8 @@ export function RecruiterDashboard() {
           onClose={() => setSelectedApplicant(null)}
           onSetStatus={setApplicantStatus}
           onScheduleInterview={scheduleInterview}
+          onMessage={openChat}
+          messageBusy={chat.openThread.isPending}
         />
 
         <JobDrawer

@@ -18,6 +18,9 @@ const schema = z.object({
   ATS_ENDPOINT: z.string().default('https://ats-resume-api-cmkh.onrender.com'),
   ATS_API_KEY: z.string().default(''),
   ATS_MAX_PAGES: z.coerce.number().int().positive().default(2),
+  /* Secret the recruiter view keys contact digests with (HMAC-SHA256).
+     Change it and every token issued before stops matching. */
+  CONTACT_PEPPER: z.string().default('jobdev-dev-contact-pepper-change-me'),
 }).refine(({ DB_POOL_MIN, DB_POOL_MAX }) => DB_POOL_MIN <= DB_POOL_MAX, {
   message: 'DB_POOL_MIN must not exceed DB_POOL_MAX',
   path: ['DB_POOL_MIN'],

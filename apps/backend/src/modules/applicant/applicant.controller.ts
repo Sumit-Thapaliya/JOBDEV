@@ -5,6 +5,7 @@ import { UserRepository } from '../user/user.repository.js';
 import { JobRepository } from '../job/job.repository.js';
 import { ApplicationRepository } from '../application/application.repository.js';
 import { toApplicantPayload, type ApplicantPayload } from './applicant.serializer.js';
+import { renderApplicantPdf } from './resume-pdf.js';
 
 /**
  * Recruiter-facing applicant endpoints.
@@ -120,6 +121,36 @@ export const getApplicantResume: RequestHandler = async (req, res, next) => {
         resume: payload.candidate.resume,
       },
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * The resume as a PDF — composed HERE from the masked payload, so the file the
+ * recruiter opens never contained the email/phone/links in the first place.
+ * (The stored ATS PDF and the original upload are NOT used: their bytes hold
+ * the real values and a PDF cannot be blurred after it is built.)
+ *
+ *   GET /api/applicants/:id/resume/pdf   → application/pdf, inline
+ */
+export const getApplicantResumePdf: RequestHandler = async (req, res, next) => {
+  try {
+    const { application, job, candidate } = await loadForViewer(req.params.id as string, {
+      userId: req.user!.userId,
+      role: req.user!.role,
+    });
+    const payload = toApplicantPayload(application, candidate, job);
+    const bytes = await renderApplicantPdf(payload, req.user!.email ?? req.user!.name ?? 'Recruiter view');
+    const slug = payload.candidate.name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '') || 'candidate';
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${slug}-jobdev-resume.pdf"`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(Buffer.from(bytes));
   } catch (error) {
     next(error);
   }

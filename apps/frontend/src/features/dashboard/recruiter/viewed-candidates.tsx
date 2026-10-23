@@ -95,7 +95,9 @@ export function ViewedCandidatesView({
               </p>
               {view.candidateEmail && (
                 <p className="text-sm text-muted-foreground">
-                  {view.candidateEmail}
+                  <span aria-hidden className="select-none font-mono text-[10px] blur-[3px]" title="Email hidden">
+                    {view.candidateEmail}
+                  </span>
                 </p>
               )}
               <p className="text-sm text-muted-foreground">
@@ -164,8 +166,10 @@ export function ViewedCandidateDrawer({
     status: 'New',
     match: 0,
     appliedDaysAgo: 0,
+    /* The API already blurred these for a recruiter (one-way digests). */
     email: user.email ?? '',
     phone: user.phone ?? '',
+    contactMasked: true,
     location: profile.location ?? '',
     summary: profile.about ?? '',
     skills: profile.skills ?? [],

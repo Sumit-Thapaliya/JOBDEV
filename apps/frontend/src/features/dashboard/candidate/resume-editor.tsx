@@ -58,7 +58,9 @@ import type {
   CanvasTextObject,
   CanvasTextStyle,
   ResumeAlign,
+  ResumeDocument,
 } from './demo-resume-pdf';
+import { RESUME_TEMPLATES, fillWithTemplate } from './templates';
 
 /* -------------------------------------------------------------------------- */
 /*                              Numbers we share                              */
@@ -560,12 +562,15 @@ function EditableText({
 
 export function ResumeEditor({
   canvas,
+  resumeDocument = null,
   onSave,
   onCancel,
   saving = false,
   saveError,
 }: {
   canvas: CanvasDocument;
+  /** The extracted resume — powers the in-editor Templates panel. */
+  resumeDocument?: ResumeDocument | null;
   saving?: boolean;
   saveError?: string | null;
   onSave: (canvas: CanvasDocument) => void;
@@ -690,6 +695,24 @@ export function ResumeEditor({
     });
   }, [doc]);
 
+  /* ------------------------------- templates ------------------------------- */
+
+  /** Pour the extracted resume into a template; one undo step. */
+  const applyTemplate = useCallback(
+    (id: string) => {
+      if (!resumeDocument) return;
+      const filled = fillWithTemplate(id, resumeDocument);
+      if (!filled) return;
+      setEditingId(null);
+      setSelectedIds([]);
+      snapshot();
+      setDoc(toEdit(filled));
+      setActivePage(0);
+      setNotice('Template applied — Ctrl+Z brings your previous layout back.');
+    },
+    [resumeDocument, snapshot],
+  );
+
   /* ------------------------------- zoom / fit ------------------------------ */
 
   useEffect(() => {
@@ -716,8 +739,8 @@ export function ResumeEditor({
       if (!element) return { x: 0, y: 0 };
       const rect = element.getBoundingClientRect();
       return {
-        x: (clientX - rect.left) / (zoom || 1) - MARGIN,
-        y: (clientY - rect.top) / (zoom || 1) - MARGIN,
+        x: (clientX - rect.left) / (zoom || 1),
+        y: (clientY - rect.top) / (zoom || 1),
       };
     },
     [zoom],
@@ -735,8 +758,8 @@ export function ResumeEditor({
       w: number,
       h: number,
     ) => {
-      const xs = [0, CONTENT_W / 2, CONTENT_W];
-      const ys = [0, CONTENT_H / 2, CONTENT_H];
+      const xs = [MARGIN, MARGIN + CONTENT_W / 2, PAGE_W - MARGIN];
+      const ys = [MARGIN, MARGIN + CONTENT_H / 2, PAGE_H - MARGIN];
       for (const other of document_.pages[pageIndex]?.objects ?? []) {
         if (other.id === objectId) continue;
         const box = boxOf(other);
@@ -813,8 +836,8 @@ export function ResumeEditor({
       if (!element) return { x: 0, y: 0 };
       const rect = element.getBoundingClientRect();
       return {
-        x: (clientX - rect.left) / (zoom || 1) - MARGIN,
-        y: (clientY - rect.top) / (zoom || 1) - MARGIN,
+        x: (clientX - rect.left) / (zoom || 1),
+        y: (clientY - rect.top) / (zoom || 1),
       };
     },
     [zoom],
@@ -823,8 +846,9 @@ export function ResumeEditor({
   /** Keep an object on its sheet: a sliver must always stay grabbable. */
   const clampPosition = (object: EditObject, w: number, h: number, x: number, y: number) => {
     const margin = 24; // at least this much of the box stays on the sheet
-    const minX = Math.min(0, MARGIN + margin - w * 2) + (w > MARGIN + margin ? -w + margin : 0);
-    const maxX = PAGE_W - (w > MARGIN + margin ? margin : w);
+    /* Absolute page coordinates: any side may hang off, but a sliver stays. */
+    const minX = -w + margin;
+    const maxX = PAGE_W - margin;
     const keep = object.type === 'text' ? 0 : -h + 24;
     return {
       x: Math.round(Math.max(minX, Math.min(maxX, x)) * 10) / 10,
@@ -1176,8 +1200,8 @@ export function ResumeEditor({
       const object: EditObject = {
         id: uid('obj'),
         type: 'text',
-        x: 0,
-        y: 0,
+        x: MARGIN,
+        y: MARGIN,
         w: 220,
         text: '',
         style: { font: 'helvetica', size: 11, lineHeight: DEFAULT_LINE_HEIGHT },
@@ -1190,7 +1214,7 @@ export function ResumeEditor({
           const box = boxOf(other);
           return Math.max(max, other.y + box.h);
         }, 0);
-        object.y = Math.min(CONTENT_H - 40, page.objects.length ? lowest + 8 : 24);
+        object.y = Math.min(PAGE_H - MARGIN - 40, page.objects.length ? lowest + 8 : MARGIN + 24);
         page.objects.push(object);
       });
       setSelectedId(object.id);
@@ -1205,8 +1229,8 @@ export function ResumeEditor({
       const object: EditObject = {
         id: uid('obj'),
         type: 'text',
-        x: Math.max(0, Math.min(PAGE_W - 240, x - 40)),
-        y: Math.max(0, Math.min(PAGE_H - 60, y - 10)),
+        x: Math.max(MARGIN, Math.min(PAGE_W - MARGIN - 220, x - 40)),
+        y: Math.max(MARGIN, Math.min(PAGE_H - MARGIN - 60, y - 10)),
         w: 220,
         text: '',
         style: { font: 'helvetica', size: 11, lineHeight: DEFAULT_LINE_HEIGHT },
@@ -1284,8 +1308,8 @@ export function ResumeEditor({
         const object: EditObject = {
           id: uid('obj'),
           type: 'image',
-          x: (CONTENT_W - width) / 2,
-          y: 20,
+          x: MARGIN + (CONTENT_W - width) / 2,
+          y: MARGIN + 20,
           w: width,
           h: height,
           assetId,
@@ -1439,10 +1463,15 @@ export function ResumeEditor({
       if (!selected) return;
       const { object, pageIndex } = selected;
       const box = boxOf(object);
-      const x = where === 'left' ? 0 : where === 'right' ? CONTENT_W - box.w : (CONTENT_W - box.w) / 2;
+      const x =
+        where === 'left'
+          ? MARGIN
+          : where === 'right'
+            ? PAGE_W - MARGIN - box.w
+            : MARGIN + (CONTENT_W - box.w) / 2;
       edit((draft) => {
         const target = draft.pages[pageIndex].objects.find((candidate) => candidate.id === object.id);
-        if (target) target.x = Math.max(0, x);
+        if (target) target.x = Math.max(MARGIN, x);
       });
     },
     [edit, selected],
@@ -1663,10 +1692,10 @@ export function ResumeEditor({
     selected && selected.object.type === 'text' ? (selected.object as CanvasTextObject) : null;
   const outsideSafety =
     selected && selectedBox
-      ? selected.object.x < -1 ||
-        selected.object.y < -1 ||
-        selected.object.x + selectedBox.w > CONTENT_W + 1 ||
-        selected.object.y + selectedBox.h > CONTENT_H + 1
+      ? selected.object.x < MARGIN - 1 ||
+        selected.object.y < MARGIN - 1 ||
+        selected.object.x + selectedBox.w > PAGE_W - MARGIN + 1 ||
+        selected.object.y + selectedBox.h > PAGE_H - MARGIN + 1
       : false;
 
   return (
@@ -1726,6 +1755,34 @@ export function ResumeEditor({
                 Adding to sheet {activePage + 1} of {doc.pages.length} · click a sheet to switch
               </p>
             </div>
+
+            {resumeDocument ? (
+              <div className="border-t border-border pt-3">
+                <h3 className="text-sm font-semibold">Templates</h3>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  Fill the sheet from your extracted details again — Ctrl+Z undoes it.
+                </p>
+                <div className="mt-2 space-y-1.5">
+                  {RESUME_TEMPLATES.map((template) => (
+                    <button
+                      key={template.id}
+                      type="button"
+                      onClick={() => applyTemplate(template.id)}
+                      className="w-full rounded-lg border border-border px-2.5 py-1.5 text-left transition hover:border-primary hover:bg-primary/5"
+                    >
+                      <span className="flex items-center gap-1.5 text-xs font-medium">
+                        <span
+                          className="inline-block h-2 w-2 rounded-full"
+                          style={{ background: template.accent }}
+                        />
+                        {template.name}
+                      </span>
+                      <span className="block text-[11px] text-muted-foreground">{template.tagline}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
 
             <div className="border-t border-border pt-3">
               <h3 className="text-sm font-semibold">Zoom</h3>
@@ -2086,9 +2143,9 @@ export function ResumeEditor({
 
           <div className="space-y-2 border-t border-border bg-card p-4">
             {saveError && <p role="alert" className="text-xs text-destructive">{saveError}</p>}
-            <Button className="w-full" disabled={saving || busy} onClick={save} title="Save (Ctrl+S) — writes the PDF and saves your edit as JSON">
+            <Button className="w-full" disabled={saving || busy} onClick={save} title="Download (Ctrl+S) — renders your edit as a PDF on your device. Nothing is saved to your profile.">
               <Check className="h-4 w-4" />
-              {saving ? 'Saving to your account…' : 'Save changes'}
+              {saving ? 'Rendering your PDF…' : 'Download edited PDF'}
             </Button>
             <Button
               variant="outline"
@@ -2185,8 +2242,8 @@ export function ResumeEditor({
                     data-marquee
                     className="pointer-events-none absolute border border-primary bg-primary/10"
                     style={{
-                      left: MARGIN + Math.min(marquee.x0, marquee.x1),
-                      top: MARGIN + Math.min(marquee.y0, marquee.y1),
+                      left: Math.min(marquee.x0, marquee.x1),
+                      top: Math.min(marquee.y0, marquee.y1),
                       width: Math.abs(marquee.x1 - marquee.x0),
                       height: Math.abs(marquee.y1 - marquee.y0),
                     }}
@@ -2198,14 +2255,14 @@ export function ResumeEditor({
                   <div
                     key={`gx-${x}`}
                     className="pointer-events-none absolute top-0 w-px bg-primary/70"
-                    style={{ left: MARGIN + x, height: PAGE_H }}
+                    style={{ left: x, height: PAGE_H }}
                   />
                 ))}
                 {guides.y.map((y) => (
                   <div
                     key={`gy-${y}`}
                     className="pointer-events-none absolute left-0 h-px bg-primary/70"
-                    style={{ top: MARGIN + y, width: PAGE_W }}
+                    style={{ top: y, width: PAGE_W }}
                   />
                 ))}
 
@@ -2215,10 +2272,10 @@ export function ResumeEditor({
                   const isEditing = object.id === editingId;
                   const style = object.type === 'text' ? object.style : null;
                   const outside =
-                    object.x < -1 ||
-                    object.y < -1 ||
-                    object.x + box.w > CONTENT_W + 1 ||
-                    object.y + box.h > CONTENT_H + 1;
+                    object.x < MARGIN - 1 ||
+                    object.y < MARGIN - 1 ||
+                    object.x + box.w > PAGE_W - MARGIN + 1 ||
+                    object.y + box.h > PAGE_H - MARGIN + 1;
 
                   return (
                     <div
@@ -2238,8 +2295,8 @@ export function ResumeEditor({
                         object.hidden && 'opacity-30',
                       )}
                       style={{
-                        left: MARGIN + object.x,
-                        top: MARGIN + object.y,
+                        left: object.x,
+                        top: object.y,
                         width: Math.max(4, box.w),
                         height: Math.max(4, box.h),
                         transform: object.rotation ? `rotate(${object.rotation}deg)` : undefined,
@@ -2280,6 +2337,7 @@ export function ResumeEditor({
                             fontFamily: fontStack(style?.font),
                             fontSize: style?.size ?? 11,
                             lineHeight: style?.lineHeight ?? DEFAULT_LINE_HEIGHT,
+                            letterSpacing: style?.letterSpacing ? `${style.letterSpacing}px` : undefined,
                             fontWeight: style?.bold ? 700 : 400,
                             fontStyle: style?.italic ? 'italic' : 'normal',
                             color: style?.color ?? '#000000',
@@ -2384,8 +2442,8 @@ export function ResumeEditor({
                             key={`multi-${item.object.id}`}
                             className="pointer-events-none absolute border border-dashed border-primary/60"
                             style={{
-                              left: MARGIN + item.object.x,
-                              top: MARGIN + item.object.y,
+                              left: item.object.x,
+                              top: item.object.y,
                               width: box.w,
                               height: box.h,
                               transform: item.object.rotation
@@ -2404,8 +2462,8 @@ export function ResumeEditor({
                     <div
                       className="absolute"
                       style={{
-                        left: MARGIN + selected.object.x,
-                        top: MARGIN + selected.object.y,
+                        left: selected.object.x,
+                        top: selected.object.y,
                         width: selectedBox.w,
                         height: selectedBox.h,
                         transform: selected.object.rotation
@@ -2462,10 +2520,10 @@ export function ResumeEditor({
                           data-floating-bar
                           className="pointer-events-none absolute z-20"
                           style={{
-                            left: MARGIN + selected.object.x + selectedBox.w / 2,
+                            left: selected.object.x + selectedBox.w / 2,
                             top: fitsAbove
-                              ? MARGIN + selected.object.y - 8
-                              : MARGIN + selected.object.y + selectedBox.h + 8,
+                              ? selected.object.y - 8
+                              : selected.object.y + selectedBox.h + 8,
                           }}
                         >
                           <div
@@ -2619,8 +2677,8 @@ export function ResumeEditor({
                     data-multi-badge
                     className="pointer-events-none absolute rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground shadow"
                     style={{
-                      left: MARGIN + selected.object.x + selectedBox.w / 2,
-                      top: MARGIN + selected.object.y - 24 / zoom,
+                      left: selected.object.x + selectedBox.w / 2,
+                      top: selected.object.y - 24 / zoom,
                       transform: 'translateX(-50%)',
                     }}
                   >

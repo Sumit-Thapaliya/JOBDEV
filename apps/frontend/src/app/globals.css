@@ -4,93 +4,75 @@
 
 @layer base {
   :root {
-    --background: 35 55% 91%;
-    --foreground: 0 14% 18%;
-
-    --card: 35 60% 96%;
-    --card-foreground: 0 14% 18%;
-    --popover: 35 60% 96%;
-    --popover-foreground: 0 14% 18%;
-
-    --primary: 212 48% 37%;
+    --background: 228 45% 98%;
+    --foreground: 226 22% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 226 22% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 226 22% 12%;
+    --primary: 230 78% 57%;
     --primary-foreground: 0 0% 100%;
-    --primary-dark: 212 52% 28%;
-    --primary-hover: 212 50% 32%;
-    --primary-light: 212 45% 90%;
-
-    --secondary: 35 30% 88%;
-    --secondary-foreground: 212 52% 28%;
-
-    --muted: 35 30% 87%;
-    --muted-foreground: 10 10% 38%;
-
-    --accent: 212 45% 92%;
-    --accent-foreground: 212 52% 28%;
-
-    --destructive: 8 70% 42%;
+    --primary-dark: 230 66% 47%;
+    --primary-hover: 230 66% 51%;
+    --primary-light: 229 100% 97%;
+    --secondary: 229 100% 97%;
+    --secondary-foreground: 230 66% 47%;
+    --muted: 225 40% 96%;
+    --muted-foreground: 224 9% 41%;
+    --accent: 229 100% 97%;
+    --accent-foreground: 230 66% 47%;
+    --destructive: 358 75% 59%;
     --destructive-foreground: 0 0% 100%;
-
-    --success: 145 55% 30%;
+    --success: 153 68% 42%;
     --success-foreground: 0 0% 100%;
-    --warning: 38 90% 34%;
-    --warning-foreground: 40 100% 97%;
-    --info: 212 60% 40%;
-    --info-foreground: 0 0% 100%;
-
-    --cta: 10 85% 66%;
-    --cta-foreground: 10 60% 12%;
-    --panel: 0 12% 23%;
-    --panel-foreground: 35 55% 92%;
-
-    --border: 35 25% 80%;
-    --input: 35 25% 78%;
-    --ring: 212 48% 37%;
-
+    --warning: 37 91% 55%;
+    --warning-foreground: 226 22% 12%;
+    --info: 179 56% 52%;
+    --info-foreground: 226 22% 12%;
+    --cta: 230 78% 57%;
+    --cta-foreground: 0 0% 100%;
+    --panel: 226 22% 12%;
+    --panel-foreground: 228 45% 98%;
+    --border: 225 21% 93%;
+    --input: 225 21% 93%;
+    --ring: 230 78% 57%;
     --radius: 0.75rem;
   }
 
   .dark {
-    --background: 0 12% 12%;
-    --foreground: 35 45% 90%;
-
-    --card: 0 11% 16%;
-    --card-foreground: 35 45% 90%;
-    --popover: 0 11% 16%;
-    --popover-foreground: 35 45% 90%;
-
-    --primary: 212 60% 62%;
-    --primary-foreground: 0 12% 10%;
-    --primary-dark: 212 70% 75%;
-    --primary-hover: 212 60% 68%;
-    --primary-light: 212 35% 20%;
-
-    --secondary: 0 10% 20%;
-    --secondary-foreground: 212 70% 75%;
-
-    --muted: 0 10% 19%;
-    --muted-foreground: 35 15% 65%;
-
-    --accent: 0 10% 21%;
-    --accent-foreground: 212 70% 75%;
-
-    --destructive: 8 75% 60%;
-    --destructive-foreground: 0 0% 100%;
-
-    --success: 145 55% 55%;
-    --success-foreground: 150 50% 8%;
-    --warning: 40 90% 55%;
-    --warning-foreground: 45 50% 8%;
-    --info: 212 70% 60%;
-    --info-foreground: 212 50% 8%;
-
-    --cta: 10 88% 70%;
-    --cta-foreground: 10 60% 10%;
-    --panel: 0 14% 15%;
-    --panel-foreground: 35 45% 92%;
-
-    --border: 0 10% 26%;
-    --input: 0 10% 29%;
-    --ring: 212 60% 62%;
+    --background: 224 28% 8%;
+    --foreground: 230 38% 94%;
+    --card: 224 25% 12%;
+    --card-foreground: 230 38% 94%;
+    --popover: 224 25% 12%;
+    --popover-foreground: 230 38% 94%;
+    --primary: 230 79% 71%;
+    --primary-foreground: 225 35% 7%;
+    --primary-dark: 229 82% 80%;
+    --primary-hover: 230 81% 75%;
+    --primary-light: 228 36% 18%;
+    --secondary: 229 36% 18%;
+    --secondary-foreground: 229 82% 85%;
+    --muted: 225 27% 15%;
+    --muted-foreground: 225 13% 70%;
+    --accent: 228 34% 21%;
+    --accent-foreground: 230 83% 86%;
+    --destructive: 358 100% 71%;
+    --destructive-foreground: 225 35% 7%;
+    --success: 155 59% 50%;
+    --success-foreground: 161 67% 8%;
+    --warning: 38 92% 60%;
+    --warning-foreground: 41 76% 8%;
+    --info: 179 61% 57%;
+    --info-foreground: 176 72% 8%;
+    --cta: 230 79% 71%;
+    --cta-foreground: 225 35% 7%;
+    --panel: 227 30% 9%;
+    --panel-foreground: 230 38% 94%;
+    --border: 225 24% 20%;
+    --input: 224 23% 22%;
+    --ring: 230 79% 71%;
+    --radius: 0.75rem;
   }
 
   * {

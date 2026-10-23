@@ -4,11 +4,13 @@ import {
   Bookmark,
   Briefcase,
   Compass,
+  Eye,
   FileSearch,
   HelpCircle,
   LayoutDashboard,
   LifeBuoy,
   LogOut,
+  MessagesSquare,
   Settings,
   Sparkles,
   UserRound,
@@ -19,10 +21,12 @@ import { cn } from '@/lib/utils';
 export type CandidateView =
   | 'overview'
   | 'applications'
+  | 'messages'
   | 'interviews'
   | 'resume'
   | 'saved'
   | 'jobs'
+  | 'views'
   | 'profile'
   | 'settings'
   | 'help';
@@ -36,7 +40,9 @@ export const NAV_ITEMS: Array<{
   { id: 'overview', label: 'Dashboard', icon: LayoutDashboard, section: 'main' },
   { id: 'jobs', label: 'Find jobs', icon: Compass, section: 'main' },
   { id: 'applications', label: 'My applications', icon: Briefcase, section: 'main' },
+  { id: 'messages', label: 'Messages', icon: MessagesSquare, section: 'main' },
   // { id: 'interviews', label: 'Interviews', icon: CalendarCheck, section: 'main' },
+  { id: 'views', label: 'Who viewed me', icon: Eye, section: 'main' },
   { id: 'resume', label: 'Build resume', icon: FileSearch, section: 'main' },
   { id: 'saved', label: 'Saved jobs', icon: Bookmark, section: 'main' },
   { id: 'profile', label: 'My profile', icon: UserRound, section: 'general' },

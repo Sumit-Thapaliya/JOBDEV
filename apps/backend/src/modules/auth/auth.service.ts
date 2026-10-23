@@ -194,6 +194,8 @@ export class AuthService {
     fileName: string,
     dataBase64: string,
     parsed?: Record<string, unknown> | null,
+    /** The 1-page ATS PDF from the service — becomes users.resumePdf. */
+    atsPdf?: Buffer | null,
   ) {
     const user = await this.userRepo.findById(userId);
     if (!user || user.isDeleted) {
@@ -236,7 +238,7 @@ export class AuthService {
       await manager.query('DELETE FROM resume_assets WHERE "userId" = $1', [userId]);
       Object.assign(current, {
         resumeCanvas: null,
-        resumePdf: null,
+        resumePdf: atsPdf ?? null,
         resumeFileName: fileName,
         resumeData: dataBase64,
         resumeUploadedAt: new Date(),

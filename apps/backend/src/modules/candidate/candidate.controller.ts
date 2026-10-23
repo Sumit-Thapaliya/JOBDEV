@@ -3,11 +3,15 @@ import { AppError } from '../../common/errors/AppError.js';
 import { UserRole } from '../user/user.entity.js';
 import { UserRepository } from '../user/user.repository.js';
 import { toSafeUser } from '../auth/auth.service.js';
+import { contactTokenShort } from '../../common/crypto/contact-token.js';
 
 import { z } from 'zod';
 import { AppDataSource } from '../../database/data-source.js';
 import { User } from '../user/user.entity.js';
 import { ProfileView } from './profile-view.entity.js';
+
+/** A recruiter gets the FIELD, never the value: it becomes a one-way digest. */
+const blurred = (value?: string | null) => (value && value.trim() ? contactTokenShort(value) : '');
 
 const candidateIdSchema = z.string().uuid('Invalid candidate id');
 const userRepo = new UserRepository();
@@ -32,7 +36,23 @@ export const getCandidate: RequestHandler = async (req, res, next) => {
     if (!user || user.isDeleted || user.role !== UserRole.CANDIDATE) {
       throw new AppError(404, 'Candidate not found');
     }
-    res.json({ success: true, data: { candidate: toSafeUser(user) } });
+    const safe = toSafeUser(user);
+    if (req.user!.role === UserRole.RECRUITER) {
+      res.json({
+        success: true,
+        data: {
+          candidate: {
+            ...safe,
+            identifier: blurred(safe.identifier),
+            email: blurred(safe.email),
+            phone: blurred(safe.phone),
+            contactNumber: blurred(safe.contactNumber),
+          },
+        },
+      });
+      return;
+    }
+    res.json({ success: true, data: { candidate: safe } });
   } catch (error) {
     next(error);
   }
@@ -106,7 +126,12 @@ export const getProfileViews: RequestHandler = async (req, res, next) => {
       .orderBy('view.createdAt', 'DESC')
       .addOrderBy('view.id', 'DESC')
       .getRawMany();
-    res.json({ success: true, data: { totalViews: views.length, views } });
+    /* The list may show the field, never the address. */
+    const masked = views.map((view: { candidateEmail?: string | null }) => ({
+      ...view,
+      candidateEmail: blurred(view.candidateEmail),
+    }));
+    res.json({ success: true, data: { totalViews: masked.length, views: masked } });
   } catch (error) {
     next(error);
   }
@@ -114,7 +139,7 @@ export const getProfileViews: RequestHandler = async (req, res, next) => {
 
 export const getOwnProfileViews: RequestHandler = async (req, res, next) => {
   try {
-    const totalViews = await AppDataSource.getRepository(ProfileView)
+    const views = await AppDataSource.getRepository(ProfileView)
       .createQueryBuilder('view')
       .innerJoin(
         User,
@@ -125,8 +150,32 @@ export const getOwnProfileViews: RequestHandler = async (req, res, next) => {
       .where('view.candidateId = :candidateId', {
         candidateId: req.user!.userId,
       })
-      .getCount();
-    res.json({ success: true, data: { totalViews } });
+      .select([
+        'view.id AS "id"',
+        'view.createdAt AS "viewedAt"',
+        'recruiter.userId AS "recruiterId"',
+        'recruiter.name AS "recruiterName"',
+        'recruiter.companyName AS "companyName"',
+        'recruiter.email AS "recruiterEmail"',
+      ])
+      .orderBy('view.createdAt', 'DESC')
+      .addOrderBy('view.id', 'DESC')
+      .getRawMany();
+
+    res.json({
+      success: true,
+      data: {
+        totalViews: views.length,
+        views: views.map((v) => ({
+          id: v.id,
+          viewedAt: v.viewedAt,
+          recruiterId: v.recruiterId,
+          recruiterName: v.recruiterName || 'Recruiter',
+          companyName: v.companyName || '',
+          recruiterEmail: v.recruiterEmail || '',
+        })),
+      },
+    });
   } catch (error) {
     next(error);
   }

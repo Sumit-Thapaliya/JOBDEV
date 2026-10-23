@@ -57,16 +57,20 @@ import {
 import {
   ApplicationDrawer,
   ApplicationsView,
+  CandidateProfileViewsView,
   EmptyState,
   HelpView,
   InterviewsView,
   JobDrawer,
   JobsView,
+  MessagesView,
   ProfileView,
   SavedJobsView,
   SectionCard,
   SettingsView,
 } from './candidate/views';
+import { useChat } from './chat/use-chat';
+
 const ResumeStudioView = dynamic(() => import('./candidate/resume-studio').then(module => module.ResumeStudioView), { loading: () => <p role="status">Opening resume studio…</p> });
 
 /* Accepts either our own Save format (CandidateProfile-shaped) or the raw JSON
@@ -247,6 +251,8 @@ function countByStatus(applications: Application[]): Record<ApplicationStatus, n
 
 export function CandidateDashboard() {
   const { data: user } = useSession();
+  /* Conversations a recruiter has started; the candidate never opens one. */
+  const chat = useChat(!!user);
   const setUser = useSetSession();
 
   const [view, setView] = useState<CandidateView>('overview');
@@ -257,7 +263,17 @@ export function CandidateDashboard() {
   const client = useQueryClient();
   const jobsKey = ['account', user?.id, 'jobs'];
   const applicationsKey = ['account', user?.id, 'applications'];
-  const profileViewsQuery = useAccountQuery<{ totalViews: number }>('/api/candidates/views/me');
+  const profileViewsQuery = useAccountQuery<{
+    totalViews: number;
+    views: Array<{
+      id: string;
+      viewedAt: string;
+      recruiterId: string;
+      recruiterName: string;
+      companyName: string;
+      recruiterEmail: string;
+    }>;
+  }>('/api/candidates/views/me');
   const jobsQuery = useQuery({ queryKey: jobsKey, enabled: !!user,
     queryFn: async ({ signal }) => (await apiGet<{ jobs: JobRow[] }>('/api/jobs', signal)).jobs.map(mapLiveJob) });
   const applicationsQuery = useQuery({ queryKey: applicationsKey, enabled: !!user,
@@ -283,6 +299,24 @@ export function CandidateDashboard() {
      survive switching views (the studio itself is unmounted on navigation). */
   const [atsFile, setAtsFile] = useState<AtsUploadedFile | null>(null);
   const [atsResult, setAtsResult] = useState<AtsGenerationResult | null>(null);
+
+  /* The ATS resume lives in the database (users.resumePdf + parsedProfile).
+     The in-memory `atsResult` dies on reload, so read the saved copy back and
+     let the profile card keep saying "ready" after a refresh or a new login. */
+  const savedResumeQuery = useQuery<SavedResume | null>({
+    queryKey: ['account', user?.id, 'resume'],
+    queryFn: async ({ signal }) =>
+      (await apiGet<{ resume: SavedResume | null }>('/api/auth/resume', signal)).resume,
+    enabled: !!user,
+    gcTime: 60_000,
+  });
+  const savedAts = savedResumeQuery.data ?? null;
+  const savedAtsName =
+    savedAts && (savedAts.atsPdfBase64 || savedAts.canvas || savedAts.parsedProfile)
+      ? `${savedAts.fileName.replace(/\.[^.]+$/, '')}-ats-resume.pdf`
+      : null;
+  const atsReady = Boolean(atsResult) || Boolean(savedAtsName);
+  const atsName = atsResult?.fileName ?? savedAtsName;
 
   // Notification view state is memory-only, never persisted alongside identity data.
   const [notifications, setNotifications] = useState<Notification[]>(INITIAL_NOTIFICATIONS);
@@ -422,8 +456,8 @@ export function CandidateDashboard() {
       value: profileViewsQuery.data?.totalViews ?? 0,
       delta: `Profile ${completeness}% complete`,
       icon: Eye,
-      hint: 'Open your profile',
-      go: () => setView('profile'),
+      hint: 'See who viewed your profile',
+      go: () => setView('views'),
     },
   ];
 
@@ -522,6 +556,8 @@ export function CandidateDashboard() {
           applications: activeApplications.length,
           interviews: upcomingInterviews.length,
           saved: savedIds.length,
+          views: profileViewsQuery.data?.totalViews,
+          messages: chat.unread,
         }}
         strengthPercent={completeness}
         missingSignals={missingSignals}
@@ -645,16 +681,16 @@ export function CandidateDashboard() {
               subtitle="Upload the resume you send out and download the ATS-friendly version"
               delay={220}
             >
-              {atsResult ? (
+              {atsReady ? (
                 <div className="flex flex-wrap items-center gap-4">
                   <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-success/10 text-success">
                     <FileCheck2 className="h-5 w-5" />
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold">{atsResult.fileName}</p>
+                    <p className="truncate text-sm font-semibold">{atsName}</p>
                     <p className="text-sm text-muted-foreground">
-                      PDF · {atsResult.pages} page{atsResult.pages === 1 ? '' : 's'} · ready to
-                      send
+                      PDF · {atsResult?.pages ?? 1} page{(atsResult?.pages ?? 1) === 1 ? '' : 's'} ·
+                      saved with your profile
                     </p>
                   </div>
                   <Button onClick={downloadAtsResume}>
@@ -778,6 +814,33 @@ export function CandidateDashboard() {
           />
         )}
 
+        {view === 'views' && (
+          <CandidateProfileViewsView
+            views={profileViewsQuery.data?.views ?? []}
+            totalViews={profileViewsQuery.data?.totalViews ?? 0}
+            isLoading={profileViewsQuery.isPending}
+            error={profileViewsQuery.error?.message}
+            onRetry={() => { void profileViewsQuery.refetch(); }}
+          />
+        )}
+
+        {view === 'messages' && (
+          <MessagesView
+            conversations={chat.threads.data ?? []}
+            onSend={(conversationId, text) => chat.send.mutate({ threadId: conversationId, text })}
+            onMarkRead={(conversationId) => chat.markRead.mutate(conversationId)}
+            loading={chat.threads.isLoading}
+            sending={chat.send.isPending}
+            error={
+              chat.threads.error instanceof Error
+                ? chat.threads.error.message
+                : chat.send.error instanceof Error
+                  ? chat.send.error.message
+                  : null
+            }
+          />
+        )}
+
         {view === 'interviews' && (
           <InterviewsView
             interviews={INITIAL_INTERVIEWS}
@@ -884,8 +947,8 @@ export function CandidateDashboard() {
             checklist={checklist}
             percent={completeness}
             onOpenSettings={() => setView('settings')}
-            atsReady={Boolean(atsResult)}
-            atsFileName={atsResult?.fileName ?? null}
+            atsReady={atsReady}
+            atsFileName={atsName}
             onOpenResume={() => setView('resume')}
             onDownloadAts={downloadAtsResume}
             onSaveProfile={(fields) => persistProfile({ ...profile, ...fields })}

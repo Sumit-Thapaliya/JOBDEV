@@ -78,6 +78,7 @@ export const getSavedResume: RequestHandler = async (req, res, next) => {
           canvas: await hydratedCanvas(user),
           uploadedAt: user.resumeUploadedAt,
           parsedProfile: user.parsedProfile,
+          atsPdfBase64: user.resumePdf ? user.resumePdf.toString('base64') : null,
         },
       },
     });
@@ -97,11 +98,11 @@ export const uploadResume: RequestHandler = async (req, res, next) => {
        store whatever it parses. The API key never leaves the backend. */
     let parsedProfile: Record<string, unknown> | null = parsed ?? null;
     let atsError: string | null = null;
+    const fileBuffer = Buffer.from(String(dataBase64), 'base64');
     if (!parsedProfile && env.ATS_API_KEY.length > 0) {
       try {
-        const buffer = Buffer.from(String(dataBase64), 'base64');
         const form = new FormData();
-        form.append('file', new Blob([buffer], { type: 'application/pdf' }), fileName);
+        form.append('file', new Blob([fileBuffer], { type: 'application/pdf' }), fileName);
         form.append('max_pages', String(env.ATS_MAX_PAGES));
         const atsRes = await serviceRequest(`${env.ATS_ENDPOINT}/v1/format`, {
           method: 'POST',
@@ -120,15 +121,42 @@ export const uploadResume: RequestHandler = async (req, res, next) => {
       atsError = 'Extraction service is not configured on the server';
     }
 
+    /* The candidate's ATS-friendly copy: exactly 1 page, no brand stamp
+       (`no_watermark=true` — verified live). Any failure here never blocks the
+       upload or the saved parsed JSON. */
+    let atsPdf: Buffer | null = null;
+    if (parsedProfile && env.ATS_API_KEY.length > 0) {
+      try {
+        const form = new FormData();
+        form.append('file', new Blob([fileBuffer], { type: 'application/pdf' }), fileName);
+        /* /v1/format/pdf is always exactly 1 page and takes no max_pages. */
+        form.append('no_watermark', 'true');
+        const pdfRes = await serviceRequest(`${env.ATS_ENDPOINT}/v1/format/pdf`, {
+          method: 'POST',
+          headers: { 'X-API-Key': env.ATS_API_KEY },
+          body: form,
+        });
+        if (pdfRes.ok) atsPdf = Buffer.from(await pdfRes.arrayBuffer());
+      } catch {
+        /* Upload still succeeds; the studio falls back to a browser render. */
+      }
+    }
+
     const user = await authService.uploadResume(
       req.user!.userId,
       fileName,
       dataBase64,
       parsedProfile,
+      atsPdf,
     );
     res.json({
       success: true,
-      data: { user: toSafeUser(user), parsed: parsedProfile, atsError },
+      data: {
+        user: toSafeUser(user),
+        parsed: parsedProfile,
+        atsError,
+        atsPdfBase64: atsPdf ? atsPdf.toString('base64') : null,
+      },
     });
   } catch (error) {
     next(error);

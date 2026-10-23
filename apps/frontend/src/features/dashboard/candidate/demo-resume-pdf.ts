@@ -70,18 +70,41 @@ function wrap(text: string, size: number, maxWidth: number): string[] {
 }
 
 /** PDF strings are ASCII-only: no embedded font, nothing to mis-encode. */
+/* The font dictionaries declare /WinAnsiEncoding, so bullets, dashes and
+   curly quotes can go out as their real WinAnsi bytes instead of ASCII
+   stand-ins. Everything above U+00FF is dropped as before. */
+const WINANSI: Record<string, string> = {
+  '\u2018': '\x91',
+  '\u2019': '\x92',
+  '\u02BC': '\x92',
+  '\u201C': '\x93',
+  '\u201D': '\x94',
+  '\u2013': '\x96',
+  '\u2014': '\x97',
+  '\u2212': '\x2D',
+  '\u2022': '\x95',
+  '\u00B7': '\xB7',
+  '\u2026': '\x85',
+  '\u20B9': 'Rs ',
+};
+
 function escapePdfText(value: string): string {
-  return value
-    .replace(/[\u2018\u2019\u02BC]/g, "'")
-    .replace(/[\u201C\u201D]/g, '"')
-    .replace(/[\u2013\u2014\u2212]/g, '-')
-    .replace(/[\u2022\u00B7]/g, '-')
-    .replace(/\u2026/g, '...')
-    .replace(/\u20B9/g, 'Rs ')
-    .replace(/[^\x20-\x7E]/g, '')
+  let mapped = '';
+  for (const character of value) mapped += WINANSI[character] ?? character;
+  return mapped
+    .replace(/[^\x20-\x7E\x80-\xFF]/g, '')
     .replace(/\\/g, '\\\\')
     .replace(/\(/g, '\\(')
     .replace(/\)/g, '\\)');
+}
+
+/** A PDF string is WinAnsi: one character, one byte. */
+function latin1Bytes(value: string): Uint8Array<ArrayBuffer> {
+  const out = new Uint8Array(value.length);
+  for (let index = 0; index < value.length; index += 1) {
+    out[index] = value.charCodeAt(index) & 0xff;
+  }
+  return out;
 }
 
 interface Row {
@@ -357,8 +380,9 @@ export function resumePdf(document: ResumeDocument): { blob: Blob; pages: number
 
   objects.sort((a, b) => a.id - b.id);
 
-  const encoder = new TextEncoder();
-  const bytes = (value: string) => encoder.encode(value).length;
+  /* Characters map 1:1 onto bytes (see latin1Bytes), so the character count
+     is already the byte offset the xref table needs. */
+  const bytes = (value: string) => value.length;
 
   let pdf = '%PDF-1.4\n';
   const offsets: Record<number, number> = {};
@@ -375,7 +399,7 @@ export function resumePdf(document: ResumeDocument): { blob: Blob; pages: number
   }
   pdf += `${xref}trailer\n<< /Size ${size} /Root 1 0 R >>\nstartxref\n${startxref}\n%%EOF\n`;
 
-  return { blob: new Blob([pdf], { type: 'application/pdf' }), pages: pages.length };
+  return { blob: new Blob([latin1Bytes(pdf)], { type: 'application/pdf' }), pages: pages.length };
 }
 
 /* ========================================================================== */
@@ -396,6 +420,8 @@ export interface CanvasTextStyle {
   align?: ResumeAlign;
   /** Multiplier of the point size; defaults to 1.35. */
   lineHeight?: number;
+  /** Extra space between characters, in points; templates use it for caps. */
+  letterSpacing?: number;
 }
 
 interface CanvasObjectBase {
@@ -489,6 +515,43 @@ const CANVAS_FONT_FACTOR: Record<CanvasFont, number> = {
   courier: 0.6,
 };
 
+/**
+ * Real Helvetica glyph widths (AFM units per 1000). A flat average spills
+ * wrapped text past its box — the contact row of a template was the first
+ * casualty — so widths are measured glyph by glyph instead.
+ */
+const HELVETICA_WIDTHS: Record<string, number> = {
+  ' ': 278, '!': 278, '"': 355, '#': 556, $: 556, '%': 889, '&': 667, "'": 191,
+  '(': 333, ')': 333, '*': 389, '+': 584, ',': 278, '-': 333, '.': 278, '/': 278,
+  ':': 278, ';': 278, '<': 584, '=': 584, '>': 584, '?': 556, '@': 1015,
+  '[': 278, '\\': 278, ']': 278, '^': 469, _: 556, '`': 333,
+  '{': 334, '|': 260, '}': 334, '~': 584,
+  A: 667, B: 667, C: 722, D: 722, E: 667, F: 611, G: 778, H: 722, I: 278,
+  J: 500, K: 667, L: 556, M: 833, N: 722, O: 778, P: 667, Q: 778, R: 722,
+  S: 667, T: 611, U: 722, V: 667, W: 944, X: 667, Y: 667, Z: 611,
+  a: 556, b: 556, c: 500, d: 556, e: 556, f: 278, g: 556, h: 556, i: 222,
+  j: 222, k: 500, l: 222, m: 833, n: 556, o: 556, p: 556, q: 556, r: 333,
+  s: 500, t: 278, u: 556, v: 500, w: 722, x: 500, y: 500, z: 500,
+  /* The punctuation escapePdfText lets through, plus WinAnsi extras. */
+  '\u2018': 222, '\u2019': 222, '\u201C': 333, '\u201D': 333,
+  '\u2013': 556, '\u2014': 1000, '\u2022': 350, '\u00B7': 278, '\u2026': 1000,
+};
+
+function estimatedWidth(text: string, style: CanvasTextStyle): number {
+  const size = style.size ?? 11;
+  const bold = style.bold ? 1.06 : 1;
+  const font = style.font ?? 'helvetica';
+  if (font !== 'helvetica') {
+    /* Courier is a flat 600 by design; Times stays an approximation. */
+    return text.length * size * (CANVAS_FONT_FACTOR[font] ?? 0.5) * bold;
+  }
+  let units = 0;
+  for (const character of text) {
+    units += HELVETICA_WIDTHS[character] ?? 556;
+  }
+  return (units / 1000) * size * bold;
+}
+
 export function fontStack(font?: CanvasFont): string {
   if (font === 'times') return '"Times New Roman", Times, serif';
   if (font === 'courier') return '"Courier New", Courier, monospace';
@@ -512,9 +575,11 @@ export function parseColor(color?: string | null): { r: number; g: number; b: nu
 /** Average-glyph width model, shared by wrapping and the PDF writer so the
  *  on-screen wrap and the printed wrap agree. */
 export function canvasTextWidth(text: string, style: CanvasTextStyle): number {
-  const size = style.size ?? 11;
-  const factor = CANVAS_FONT_FACTOR[style.font ?? 'helvetica'] ?? 0.5;
-  return String(text ?? '').length * size * factor * (style.bold ? 1.06 : 1);
+  const value = String(text ?? '');
+  const base = estimatedWidth(value, style);
+  const spacing = style.letterSpacing;
+  if (!spacing) return base;
+  return base + Math.max(0, value.length - 1) * spacing;
 }
 
 export function wrapCanvasText(text: string, style: CanvasTextStyle, width: number): string[] {
@@ -746,6 +811,10 @@ export function resumePdfFromCanvas(canvas: CanvasDocument): { blob: Blob; pages
         const color = parseColor(style.color) ?? { r: 0, g: 0, b: 0 };
         const lines = wrapCanvasText(object.text, style, object.w);
         ops.push(`${rgbOps(color)} rg BT /${canvasFontResource(style)} ${size} Tf`);
+        /* PDF character spacing is exactly the template's letter tracking.
+           Tc persists across text objects, so always state it — 0 included —
+           or a spaced heading would stretch every block drawn after it. */
+        ops.push(`${(style.letterSpacing ?? 0).toFixed(2)} Tc`);
         lines.forEach((line, index) => {
           const lineWidth = canvasTextWidth(line, style);
           const align = style.align ?? 'left';
@@ -895,13 +964,15 @@ export function resumePdfFromCanvas(canvas: CanvasDocument): { blob: Blob; pages
   }
   objects.sort((a, b) => a.id - b.id);
 
-  const encoder = new TextEncoder();
-  const parts: Array<string | Uint8Array> = [];
+  /* Strings become WinAnsi bytes as they are pushed, so the running `length`
+     is the true byte offset the xref table needs. */
+  const parts: Uint8Array[] = [];
   const offsets: Record<number, number> = {};
   let length = 0;
   const push = (value: string | Uint8Array) => {
-    length += typeof value === 'string' ? encoder.encode(value).length : value.length;
-    parts.push(value);
+    const chunk = typeof value === 'string' ? latin1Bytes(value) : value;
+    length += chunk.length;
+    parts.push(chunk);
   };
   push('%PDF-1.4\n');
   for (const object of objects) {

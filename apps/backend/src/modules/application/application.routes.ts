@@ -4,6 +4,7 @@ import type { RequestHandler } from 'express';
 import { authMiddleware, requireRoles } from '../../middlewares/auth.middleware.js';
 import { validate } from '../../middlewares/validate.js';
 import { AppError } from '../../common/errors/AppError.js';
+import { contactSummary, redactContactText } from '../../common/crypto/contact-token.js';
 import { UserRole } from '../user/user.entity.js';
 import { JobRepository } from '../job/job.repository.js';
 import { ApplicationRepository } from './application.repository.js';
@@ -80,18 +81,22 @@ const listRecruiterApplicants: RequestHandler = async (req, res, next) => {
         } catch(e) {}
       }
       
+      /* Contact data is replaced by one-way digests before the response is
+         built, and prose mentioning an email/link/phone is swept: whatever the
+         browser receives cannot show the real values. */
+      const contact = contactSummary(candidate.parsedProfile);
       const baseApplicant = {
         candidateId: candidate.userId,
         appliedDaysAgo: 0,
         name: candidate.name || 'Unknown',
-        email: candidate.email || '',
-        phone: candidate.mobile || '',
+        email: contact.email.token ?? '',
+        phone: contact.phone.token ?? '',
         location: 'Remote',
-        summary,
+        summary: redactContactText(summary),
         skills,
         experience,
         education,
-        resumeUrl: candidate.resumeFileName ? `/api/candidates/${candidate.userId}/resume` : undefined
+        resumeUrl: undefined as string | undefined
       };
       
       if (candidateApps.length > 0) {

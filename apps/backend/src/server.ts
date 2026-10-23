@@ -1,3 +1,5 @@
+import { createServer } from 'node:http';
+
 import { database } from './config/database.js';
 import { env } from './config/env.js';
 import { seedTestAccounts } from './database/seed.js';
@@ -12,8 +14,13 @@ const start = async () => {
   }
 
   const { app } = await import('./app.js');
+  const { attachChatGateway } = await import('./modules/message/message.gateway.js');
 
-  const server = app.listen(env.PORT, () => {
+  /* The chat socket needs the raw HTTP server, so the Express app is mounted
+     onto one instead of calling `app.listen` directly. */
+  const server = createServer(app);
+  attachChatGateway(server);
+  server.listen(env.PORT, () => {
     console.log(`API running on http://localhost:${env.PORT}`);
   });
 
